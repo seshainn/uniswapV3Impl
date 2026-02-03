@@ -17,16 +17,28 @@
       "rev": "3fcc8ee6d5c7dea3283416cbcee601d89504a243"
     }
   },
-  "lib/v3-core": {
+  "lib/swap-router-contracts": {
     "tag": {
-      "name": "v1.0.0",
-      "rev": "e3589b192d0be27e100cd0daaf6c97204fdb1899"
+      "name": "v1.3.0",
+      "rev": "c696aada49b33c8e764e6f0bd0a0a56bd8aa455f"
+    }
+  },
+  "lib/v3-core": {
+    "branch": {
+      "name": "0.8",
+      "rev": "6562c52e8f75f0c10f9deaf44861847585fc8129"
     }
   },
   "lib/v3-periphery": {
+    "branch": {
+      "name": "0.8",
+      "rev": "b325bb0905d922ae61fcc7df85ee802e8df5e96c"
+    }
+  },
+  "lib/v4-core": {
     "tag": {
-      "name": "v1.3.0",
-      "rev": "80f26c86c57b8a5e4b913f42844d4c8bd274d058"
+      "name": "v4.0.0",
+      "rev": "e50237c43811bd9b526eff40f26772152a42daba"
     }
   }
 }
