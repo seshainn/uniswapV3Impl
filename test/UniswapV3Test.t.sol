@@ -3,54 +3,99 @@ pragma solidity ^0.8.13;
 pragma abicoder v2;
 
 import {Test, console2} from "forge-std/Test.sol";
-import {IUniswapV3Pool} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
-import {IUniswapV3Factory} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
-import {IV3SwapRouter} from "lib/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {
+    IUniswapV3Pool
+} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Pool.sol";
+import {
+    IUniswapV3Factory
+} from "@uniswap/v3-core/contracts/interfaces/IUniswapV3Factory.sol";
+import {
+    IV3SwapRouter
+} from "../lib/swap-router-contracts/contracts/interfaces/IV3SwapRouter.sol";
+import {
+    INonfungiblePositionManager
+} from "@uniswap/v3-periphery/contracts/interfaces/INonfungiblePositionManager.sol";
 import {FullMath} from "../lib/v4-core/src/libraries/FullMath.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {IWETH9} from "@uniswap/v3-periphery/contracts/interfaces/external/IWETH9.sol";
+import {
+    IWETH9
+} from "@uniswap/v3-periphery/contracts/interfaces/external/IWETH9.sol";
 import "../src/constants.sol";
 import {Token0} from "../src/Token0.sol";
 import {Token1} from "../src/Token1.sol";
+import {ManageLiquidity} from "../src/ManageLiquidity.sol";
 
 contract UniswapV3Test is Test {
-
     uint256 private constant Q96 = 1 << 96;
     uint24 private constant POOL_FEE = 3000;
 
-    IWETH9 private weth = IWETH9(constants.WETH);
+    IWETH9 private weth9 = IWETH9(constants.WETH);
+    IERC20 private weth = IERC20(constants.WETH);
     IERC20 private dai = IERC20(constants.DAI);
     IERC20 private wbtc = IERC20(constants.WBTC);
 
-    IUniswapV3Factory private constant factory = IUniswapV3Factory(constants.UNISWAP_V3_FACTORY);
-    IV3SwapRouter private constant router = IV3SwapRouter(constants.UNISWAP_V3_SWAP_ROUTER_02);
-    IUniswapV3Pool private immutable pool = IUniswapV3Pool(constants.UNISWAP_V3_PAIR_USDC_WETH_500);
+    ManageLiquidity private manageLiquidity;
+    address user = makeAddr("seshu");
+
+    IUniswapV3Factory private constant factory =
+        IUniswapV3Factory(constants.UNISWAP_V3_FACTORY);
+    IV3SwapRouter private constant router =
+        IV3SwapRouter(constants.UNISWAP_V3_SWAP_ROUTER_02);
+    IUniswapV3Pool private immutable pool =
+        IUniswapV3Pool(constants.UNISWAP_V3_PAIR_USDC_WETH_3000);
+    INonfungiblePositionManager private immutable manager =
+        INonfungiblePositionManager(
+            constants.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER
+        );
 
     function setUp() public {
-        deal(constants.DAI, address(this), 1000 * 1e18);
+        deal(constants.DAI, address(this), 7000 * 1e18);
         dai.approve(address(router), type(uint256).max);
+
+        manageLiquidity = new ManageLiquidity(
+            constants.UNISWAP_V3_NONFUNGIBLE_POSITION_MANAGER,
+            constants.UNISWAP_V3_FACTORY,
+            constants.DAI,
+            constants.WETH,
+            POOL_FEE
+        );
+        deal(constants.WETH, user, 3 * 1e18);
+        deal(constants.DAI, user, 7000 * 1e18);
     }
 
-    function test_spot_price_from_sqrtPriceX96() public {
+    function test_spot_price_from_sqrtPriceX96() public view {
         uint256 price = 0;
-        (uint160 sqrtPriceX96,,,,,,) = pool.slot0();
+        (uint160 sqrtPriceX96, int24 tick, , , , , ) = pool.slot0();
 
         price = FullMath.mulDiv(sqrtPriceX96, sqrtPriceX96, Q96);
         price = (1e12 * 1e18 * Q96) / price;
 
         assertGt(price, 0, "");
         console2.log("price is %e", price);
+        console2.log("tick is %e", tick);
+        console2.log("tick spacing is ", pool.tickSpacing());
+        console2.log("pool fee is ", pool.fee());
     }
     function test_get_pool() public view {
-        address pool_addr = factory.getPool(constants.USDC, constants.WETH, 500);
+        address pool_addr = factory.getPool(
+            constants.USDC,
+            constants.WETH,
+            500
+        );
         assertEq(pool_addr, constants.UNISWAP_V3_PAIR_USDC_WETH_500);
     }
     function test_create_pool() public {
         Token0 tokenA = new Token0(1e18);
         Token1 tokenB = new Token1(1e18);
-        address pool_addr = factory.createPool(address(tokenA), address(tokenB), 500);
-        (address token0, address token1) = address(tokenA) <= address(tokenB) ? (address(tokenA), address(tokenB)) : (address(tokenB), address(tokenA));
+        address pool_addr = factory.createPool(
+            address(tokenA),
+            address(tokenB),
+            500
+        );
+        (address token0, address token1) = address(tokenA) <= address(tokenB)
+            ? (address(tokenA), address(tokenB))
+            : (address(tokenB), address(tokenA));
 
         assertEq(IUniswapV3Pool(pool_addr).token0(), token0);
         assertEq(IUniswapV3Pool(pool_addr).token1(), token1);
@@ -83,8 +128,13 @@ contract UniswapV3Test is Test {
     }
     //exactInput() is for multi hop swap
     function test_exactInput() public {
-        bytes memory path =
-            abi.encodePacked(constants.DAI, uint24(3000), constants.WETH, uint24(3000), constants.WBTC);
+        bytes memory path = abi.encodePacked(
+            constants.DAI,
+            uint24(3000),
+            constants.WETH,
+            uint24(3000),
+            constants.WBTC
+        );
 
         uint256 amountOut = router.exactInput(
             IV3SwapRouter.ExactInputParams({
@@ -121,14 +171,19 @@ contract UniswapV3Test is Test {
         assertEq(wethAfter - wethBefore, 0.1 * 1e18);
     }
     function test_exactOutput() public {
-        bytes memory path =
-            abi.encodePacked(constants.WBTC, uint24(3000), constants.WETH, uint24(3000), constants.DAI);
+        bytes memory path = abi.encodePacked(
+            constants.WBTC,
+            uint24(3000),
+            constants.WETH,
+            uint24(3000),
+            constants.DAI
+        );
 
         uint256 amountIn = router.exactOutput(
             IV3SwapRouter.ExactOutputParams({
                 path: path,
                 recipient: address(this),
-                amountOut: 0.001 * 1e8, //lower output 
+                amountOut: 0.001 * 1e8, //lower output
                 amountInMaximum: 1000 * 1e18
             })
         );
@@ -136,5 +191,23 @@ contract UniswapV3Test is Test {
         console2.log("DAI amount in %e", amountIn);
         assertLe(amountIn, 1000 * 1e18);
         assertEq(wbtc.balanceOf(address(this)), 0.001 * 1e8);
+    }
+    function test_mint() public {
+        vm.startPrank(user);
+        weth.approve(address(manageLiquidity), type(uint256).max);
+        dai.approve(address(manageLiquidity), type(uint256).max);
+
+        (uint256 tokenId, uint128 liquidity) = manageLiquidity.mint(
+            -500000,
+            500000,
+            4500e18,
+            2e18,
+            1,
+            1,
+            block.timestamp + 1
+        );
+        vm.stopPrank();
+        console2.log("token id is ", tokenId);
+        console2.log("liquidity is ", liquidity);
     }
 }
